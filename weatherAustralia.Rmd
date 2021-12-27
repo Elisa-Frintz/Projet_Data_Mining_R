@@ -1,0 +1,283 @@
+---
+title: "Rain Australia"
+output:
+  pdf_document: default
+  word_document: default
+---
+
+Notre jeu de données présente des relevés météorologiques en fonction de diverses villes en Australie.
+
+Dans un premier temps nous ferons des analyses préliminaires afin d'en sortir des informations pertinentes qui nous permettrons de construire au mieux notre jeu de données.
+
+La variable cible étant "RainTomorrow", nous lancerons plusieurs algorithmes de machine learning afin de prédire s'il pleuvra ou non le lendemain. Nous estimerons notre prédiction avec une matrice de confusion et divers estimateurs.
+
+Pour information :
+RainToday / RainTomorrow = Yes si Rainfall > 1.
+
+#############################
+                        
+Import des libraries
+
+#############################
+
+```{r setup, include=TRUE}
+
+library(readxl)
+library(tidyverse)
+library(PCAmixdata)
+library(ggcorrplot)
+library(ggplot2)
+library(glmnet)
+library(caret)
+library(tidytable)
+
+```
+
+############################################
+
+Chargement et visualisation des données
+
+############################################
+
+```{r}
+
+aus <- read.csv("weatherAUS.csv", header = TRUE, stringsAsFactors = TRUE)
+head(aus)
+
+```
+
+#######################
+
+Résumé des données
+
+#######################
+
+```{r}
+
+summary(aus)
+
+```
+
+#################################
+
+Trie du jeu de données par date
+
+#################################
+
+```{r}
+
+aus <- aus[order(aus$Date),]
+
+```
+
+###################################################################
+
+Suppression des variables avec un % trop important de valeur "NA"
+
+###################################################################
+
+```{r}
+
+# Suppression des variables avec env. 50% de données manquantes. Remplacer les NA par des moyennes ou médianes amènerait un effet aléatoire aux variables. Nous perdrions de la pertinence sur notre jeu de données.
+aus <- subset(aus, select = -c(Evaporation,Sunshine, Cloud3pm, Cloud9am))
+
+```
+
+##################################
+
+Traitement des données manquantes
+
+##################################
+
+```{r}
+
+colSums(is.na(aus))
+
+```
+```{r}
+
+# Suppression des dernières valeurs manquantes
+aus <- drop_na(aus)
+
+# Vérification que nous n'avons plus de NA
+colSums(is.na(aus))
+
+```
+
+##########################################
+
+Description des données après nettoyage
+
+##########################################
+
+```{r}
+
+summary(aus)
+
+```
+
+Une fois les valeurs manquantes traitées, nous remarquons que nous sommes dans un contexte avec des données déséquilibrées. Nous pourrons de ce fait utiliser des techniques d'échantillonage qui nous permettront d'équilibrer celui-ci.
+
+####################
+
+Gestion de la date
+
+####################
+
+```{r}
+
+################# A GARDER ? ####################
+
+# Gestion de la date
+aus <- aus %>% dplyr::mutate(Year = lubridate::year(Date), Month = lubridate::month(Date), Day = lubridate::day(Date))
+aus <- subset(aus, select = -c(Date))
+summary(aus)
+
+```
+
+
+```{r}
+
+head(aus)
+
+```
+
+####################################
+
+Quelques statistiques descriptives
+
+####################################
+
+```{r}
+
+#aus$RainToday <- ifelse(aus$RainToday == "Yes", 1, 0)
+
+# Séparation du modèle :
+X_aus <- subset(aus, select = -c(RainTomorrow))
+y_aus <- aus$RainTomorrow
+
+# Split quanti/quali
+split <- splitmix(X_aus)
+
+#Matrices de corrélation
+mcor <- cor(split$X.quanti)
+mcor
+
+```
+
+```{r}
+
+# Corrélogramme avec corrplot
+library(corrplot)
+corrplot(mcor, type="upper", order="hclust", tl.col="black", tl.srt=45)
+
+```
+
+Avec le corrélogramme nous pouvons voir plus facilement que les variables liées à la température sont fortement corrélées.
+Les variables "Pressure9pm" et "Pressure3am" sont fortement liées aussi.
+
+Il est évident de relever aussi que "MaxTemp"/"Temp3pm" et "MinTemp"/"Temp9am" ont une relation. Nous pouvons supprimer les variables "MaxTemp" et "MinTemp" qui vont amener la même information que les 2 autres.
+
+```{r}
+
+# Suppression des variables MaxTemp, MinTemp
+aus <- subset(aus, select = -c(MaxTemp, MinTemp))
+
+```
+
+Une question se pose sur la variable RainFall :
+
+```{r}
+
+boxplot(aus$Rainfall)
+
+```
+
+En effet le boxplot aussi peu visible soit-il, semble rapporter de nombreux outliers.
+
+```{r}
+
+#aus <- subset(aus, select = -c(Rainfall))
+
+```
+
+Nous supprimons les variables de dates
+
+```{r}
+
+aus <- subset(aus, select = -c(Year, Month, Day))
+
+```
+
+
+###################################
+
+Centrage et reduction des données
+
+###################################
+
+```{r}
+
+# Séparation données quanti / quali
+split <- splitmix(aus)
+
+# Centrage et réduction des données quanti
+aus_scaled <- as.data.frame(scale(split$X.quanti, center = T))
+
+# Refonte du dataset pour avoir les quali et quanti
+aus <- cbind(split$X.quali, aus_scaled)
+
+# Définition des X et y
+X <- subset(aus, select = -c(RainTomorrow))
+y <- aus$RainTomorrow
+
+# Recodage des variables quali
+
+X <- get_dummies.(X, drop_first = TRUE)
+
+# X définitif
+X <- subset(X, select = -c(Location, WindGustDir, WindDir9am, WindDir3pm, RainToday))
+
+# Affichage pour vérification
+head(X)
+
+```
+
+##################################
+
+Régression logistique Elasticnet
+
+##################################
+
+```{r}
+
+# Split train/test
+X_train <- as.matrix(X[1:79050,])
+X_test <- as.matrix(X[79051:112925,])
+
+y_train <- as.matrix(y[1:79050])
+y_test <- as.matrix(y[79051:112925])
+
+# Régression logistique pénalisée Elasticnet
+modele <- glmnet(x = X_train, y = y_train, family = "binomial", alpha = 0.5, standardize = FALSE)
+plot(modele, xvar="lambda")
+
+# Nombre de variables sélectionnées vs. lambda avec alpha = 0.5
+print(cbind(modele$lambda, modele$df))
+
+# Coefficients pour la 41ème valeur de lambda
+print(modele$beta[,41])
+
+# Coefficients non nul pour la 41ème valeur de lambda
+print(modele$beta[abs(modele$beta[,15])>0,15])
+
+# Prédiction
+prediction <- predict(modele, X_test, type = "class", s=c(0))
+
+# Matrice de confusion
+mc <-  confusionMatrix(factor(prediction), factor(y_test))
+print(mc)
+
+```
+
+
