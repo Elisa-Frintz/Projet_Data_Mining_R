@@ -30,6 +30,8 @@ library(ggplot2)
 library(glmnet)
 library(caret)
 library(tidytable)
+library(e1071)
+library(ROSE)
 
 ```
 
@@ -232,7 +234,6 @@ X <- subset(aus, select = -c(RainTomorrow))
 y <- aus$RainTomorrow
 
 # Recodage des variables quali
-
 X <- get_dummies.(X, drop_first = TRUE)
 
 # X définitif
@@ -243,11 +244,11 @@ head(X)
 
 ```
 
-##################################
+###############################
 
-Régression logistique Elasticnet
+Séparation des données
 
-##################################
+###############################
 
 ```{r}
 
@@ -258,6 +259,17 @@ X_test <- as.matrix(X[79051:112925,])
 y_train <- as.matrix(y[1:79050])
 y_test <- as.matrix(y[79051:112925])
 
+```
+
+
+##################################
+
+Régression logistique Elasticnet
+
+##################################
+
+```{r}
+'
 # Régression logistique pénalisée Elasticnet
 modele <- glmnet(x = X_train, y = y_train, family = "binomial", alpha = 0.5, standardize = FALSE)
 plot(modele, xvar="lambda")
@@ -277,7 +289,176 @@ prediction <- predict(modele, X_test, type = "class", s=c(0))
 # Matrice de confusion
 mc <-  confusionMatrix(factor(prediction), factor(y_test))
 print(mc)
+'
 
 ```
+
+#############################
+
+ I) Support Vector Machines
+
+#############################
+
+Les SVM présentent un problème face aux nombres de variables que nous possédons dû au recodage des variables qualitatives. L'algorithme avec ses paramètres par défaut et après 1h de traitement n'était toujours pas terminé.
+De ce fait, les variables qualitatives n'ont pas été conservées pour les SVM.
+
+Afin d'équilibrer notre jeu de données et d'accélérer notre algorithme, nous partons sur une stratégie de sous échantillonage avec la librairie "ROSE".
+
+##################
+
+ a) SVM Linéaire
+
+##################
+
+
+```{r}
+
+# Recodage des y_train
+y_train_svm <- ifelse(y_train == "Yes", 1, 0)
+
+#Recodage y_test
+y_test_svm <- ifelse(y_test == "Yes", 1, 0)
+
+# df train pour SVM
+X_df <- data.frame(X_train)
+train_svm <- X_df[,1:10]
+train_svm <- cbind(train_svm, X_df$RainToday_Yes)
+train_svm <-cbind(train_svm, y_train_svm)
+colnames(train_svm)[11:12] <- c("RainToday", "RainTomorrow")
+
+# df test pour SVM
+test_df <- data.frame(X_test)
+test_svm <- test_df[,1:10]
+test_svm <- cbind(test_svm, test_df$RainToday_Yes)
+colnames(test_svm)[11] <- "RainToday"
+
+# Undersampling
+under_train_svm <- ovun.sample(RainTomorrow~., data=train_svm, p=0.5, seed=5, method="under")$data
+print(table(under_train_svm$RainTomorrow))
+
+#Construction d'une solution pour tester plusieurs paramètres sans utiliser la validation croisée
+cost = c(1, 10)
+epsilon = c(0.05, 0.5)
+
+for(i in cost){
+  for(j in epsilon){
+    svm_fit_linear <- svm(formula = RainTomorrow~., data = under_train_svm, kernel = "linear", type = "C-classification", scale = FALSE, cost = i, epsilon = j)
+    
+    # Prédiction
+    pred_linear <- predict(svm_fit_linear, test_svm, type = "class")
+    
+    # Matrice de confusion, hyper-paramètres et estimateurs
+    mc_linear <-  confusionMatrix(pred_linear, factor(y_test_svm))
+    print(svm_fit_linear$call)
+    cat("\n")
+    cat("#################################\n")
+    cat("Hyper-paramètres : \n")
+    cat("Cost = ", i,"\n")
+    cat("Epsilon", j, "\n")
+    cat("#################################\n")
+    cat("Matrice de confusion : \n")
+    print(mc_linear$table)
+    cat("#################################\n")
+    cat("Accuracy : ",round(mc_linear$overall[1]*100,2) ,"%\n")
+    cat("F1 score : ",round(mc_linear$byClass[7]*100,2) ,"%\n")
+    cat("\n\n")
+  }
+}
+
+```
+Avec ces premiers résultats, nous observons que les hyper-paramètres du SVM linéaire changent peu les résultats.
+
+
+##################
+
+ b) SVM radial
+
+##################
+
+```{r}
+
+# Ajout de l'hyper-paramètre gamma
+gamma = c(0.1, 1)
+
+for(i in cost){
+  for(j in gamma){
+    # Fit avec un kernel radial
+    svm_fit_rad <- svm(formula = RainTomorrow~., data = under_train_svm, kernel = "radial", type = "C-classification", scale = FALSE, cost = i, gamma = j)
+      
+    # Prédiction
+    pred_rad <- predict(svm_fit_rad, test_svm, type = "class")
+    
+    # Matrice de confusion, hyper-paramètres et estimateurs
+    mc_radial <-  confusionMatrix(pred_rad, factor(y_test_svm))
+    print(svm_fit_rad$call)
+    cat("\n")
+    cat("#################################\n")
+    cat("Hyper-paramètres : \n")
+    cat("Cost = ", i,"\n")
+    cat("Gamma", j, "\n")
+    cat("#################################\n")
+    cat("Matrice de confusion : \n")
+    print(mc_radial$table)
+    cat("#################################\n")
+    cat("Accuracy : ",round(mc_radial$overall[1]*100,2) ,"%\n")
+    cat("F1 score : ",round(mc_radial$byClass[7]*100,2) ,"%\n")
+    cat("\n\n")
+  }
+}
+
+
+```
+
+
+####################
+
+ c) SVM polynomial
+
+####################
+
+Puis avec un noyau polynomial de degré 2.
+
+```{r}
+
+# Ajout de l'hyper-paramètre degree, coef0
+degree = 2
+coef0 = c(0.1, 1)
+
+for(i in cost){
+  for(j in gamma){
+    for(k in degree){
+      for(l in coef0){
+        # Fit avec un kernel linéaire
+        svm_fit_poly <- svm(formula = RainTomorrow~., data = under_train_svm, kernel = "polynomial", type = "C-classification", scale = FALSE, cost = i, gamma = j, degree = k, coef0 = l)
+
+        # Prédiction
+        pred_poly <- predict(svm_fit_poly, test_svm, type = "class")
+        
+        # Matrice de confusion
+        mc_poly <-  confusionMatrix(pred_poly, factor(y_test_svm))
+        print(svm_fit_poly$call)
+        cat("\n")
+        cat("#################################\n")
+        cat("Hyper-paramètres : \n")
+        cat("Cost = ", i,"\n")
+        cat("Gamma = ", j, "\n")
+        cat("Nombre de degrés = ", k, "\n")
+        cat("Coef0 = ", k, "\n")
+        cat("#################################\n")
+        cat("Matrice de confusion : \n")
+        print(mc_poly$table)
+        cat("#################################\n")
+        cat("Accuracy : ",round(mc_poly$overall[1]*100,2) ,"%\n")
+        cat("F1 score : ",round(mc_poly$byClass[7]*100,2) ,"%\n")
+        cat("\n\n")
+      }
+    }
+  }
+}
+
+```
+
+Etant donnée que nous sommes sur un jeu de données avec une série temporelle, nous ne pouvons utiliser la méthode tune pour chercher les meilleurs paramètres. En effet, la méthode tune utilise une validation croisée. Nous ne pouvons pas utiliser de validation croisée en série temporelle étant donnée que la donnée antérieure va impacter la donnée suivante.
+
 
 
