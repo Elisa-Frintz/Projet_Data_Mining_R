@@ -1,0 +1,341 @@
+---
+title: "Projet : TD4"
+author: "Alexandre Rives, Jacky Madi Corodji et Elisa Frintz"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## 2. Lecture et description des données
+
+```{r data}
+setwd("~/Documents/M2_SISE/Data_Mining_et_Apprentissage_statistique/Projet_AhPine")
+
+D = read.table("breast-cancer-wisconsin.data", sep = ",", na.strings = "?")
+
+class(D)
+str(D)
+head(D)
+summary(D)
+```
+
+## 3. Séparation des données en "train" et "test"
+
+```{r}
+## Q4) La variable D comporte des données manquantes. Identifiez les observations 
+## comportant au moins une donnée manquante à l’aide de la commande complete.cases. 
+## Vous devez identifier 16 cas.
+
+obs_miss_val = which(complete.cases(D)==F)
+
+# Affichage
+print(obs_miss_val)
+
+# Nombre d'observations comportant au moins une donnée manquante 
+print(length(obs_miss_val))
+```
+
+```{r}
+## Q5) Modifiez D de sorte à ce qu’il ne possède que des données complètes.
+
+D = D[-obs_miss_val,]
+summary(D)
+```
+
+```{r}
+## Q6) Stockez dans la variable X les variables explicatives qui concernent les 
+## colonnes 2 à 10 (inclus) de D. La variable cible sera stockée dans la variable 
+## y qui est donnée par la colonne 11 de D.
+
+# Variables explicatives  
+X <- D[,c(2:10)]
+head(X)
+
+# Variable cible 
+y <- D[,11]
+head(y)
+```
+
+```{r}
+## Q7) Recodez y de sorte à ce que les valeurs 2 deviennent des 0 (bégnine) et les
+## valeurs 4 deviennent des 1 (maligne).
+
+library(dplyr)
+y <- recode(y, '2' = 0 , '4' = 1)
+head(y)
+```
+
+```{r}
+## Q8) Stockez dans la variable benin (resp. malin) les indices des observations 
+## correspondant à des tumeurs bégnines (resp. maligne). Vous pourrez utiliser 
+## pour cela la commande which.
+
+# Indices des observations des tumeurs benignes 
+benin <- which(y == 0)
+head(benin)
+
+# Indices des observations des tumeurs malignes
+malin <- which(y == 1)
+head(malin)
+```
+
+```{r}
+## Q9) Nous garderons dans l’ensemble d'entrainement uniquement les 200 premières 
+## observations bégnines. Stockez dans la variable train_set ces 200 observations. 
+## Dans l’ensemble de test vous garderez les observations bégnines qui ne sont pas 
+## dans l’ensemble d'entrainement et toutes les observations malignes. Vous stockerez 
+## les indices des observations de test dans la variable test_set.
+
+# Indices train_set -> 200 premières observations bégnines
+train_set <- benin[1:200]
+
+# Données d'entrainement = 200 premières observations bégnines
+Xtrain <- X[train_set,] ; head(Xtrain)
+ytrain <- y[train_set] ; head(ytrain)
+
+# Indices test_set ->  Indices des observations bégnines restantes + indices 
+# des observations malignes 
+test_set <- c(benin[201:length(benin)], malin)
+
+# Données de test = Observations bégnines restantes + observations malignes
+Xtest <- X[test_set,] ; head(Xtest)
+ytest <- y[test_set] ; head(ytest)
+
+```
+
+## 4. One-class SVM
+
+```{r}
+## Q10) Chargez la librairie e1071.
+
+# install.packages("e1071")
+library(e1071)
+```
+
+```{r}
+## Q11) Stockez dans la variable oc_svm_fit les résultats de l’estimation du modèle 
+## à partir de l’ensemble d'entrainement. Vous utiliserez pour cela la commande svm. 
+## Vous utiliserez un noyau gaussien de paramètre gamma=1/2, vous indiquerez que le 
+## type de modèle est one-classification.
+
+oc_svm_fit <- svm(Xtrain, ytrain, type='one-classification', gamma=1/2)
+summary(oc_svm_fit)
+```
+
+```{r}
+## Q12) A l’aide du modèle estimé stocké dans oc_svm_fit, vous prédirez les scores 
+## des observations de test. Pour cela, utilisez la commande predict et vous 
+## indiquerez de façon adéquate le paramètre decision.values.
+oc_svm_pred_test = predict(oc_svm_fit, decision.values = TRUE, newdata = Xtest)
+table(oc_svm_pred_test)
+
+```
+
+```{r}
+## Q13) Entrez, exécutez et commentez les commandes suivantes :
+
+#attr(oc_svm_pred_test, "decision.values")
+oc_svm_score_test = -as.numeric(attr(oc_svm_pred_test ,"decision.values"))
+head(oc_svm_score_test)
+
+# On recupère les valeurs de decision.values dans l'objet oc_svm_score_test 
+# (dont on inverse le signe) : Les valeurs négatives sont les outliers et les 
+# valeurs positives sont les données correctements classés. 
+```
+
+## 5. Courbe ROC
+
+```{r}
+## Q14) Chargez la librairie ROCR.
+
+# install.packages("ROCR")
+library(ROCR)
+```
+
+```{r}
+## Q15) Entrez, exécutez et commentez les commandes suivantes :
+
+pred_oc_svm = prediction(oc_svm_score_test, y[test_set])
+oc_svm_roc = performance(pred_oc_svm, measure = "tpr", x.measure = "fpr")
+plot(oc_svm_roc)
+
+# A l'aide des prédiction effectuées à la question 13, on cherche à visualiser 
+# les performances de ce modèle à l'aide d'une courbe ROC. Celle-ci compare le 
+# taux de faux positif en fonction du taux de vrais positifs. 
+# Plus l'aire sous la courbe ROC est proche de 1, meilleur est le modèle. 
+```
+
+```{r}
+## Q16) Commentez les performances du modèle.
+
+# Calcul de l'AUC
+auc_svm <- performance(pred_oc_svm , measure = "auc" )
+print(auc_svm@y.values)
+
+# Ici, on remarque que l'aire sous la courbe ROC = 0.9932694 (proche de 1).
+# Le moèdle est donc très bon. 
+# On atteint très vite un taux de vrai positif élevé par rapport aux faux positif. 
+```
+
+## 6. Kernel PCA
+
+```{r}
+## Q17) Entrez, exécutez et commentez les commandes suivantes :
+
+# Chargement de la librairie "kernlab"
+library(kernlab) 
+
+# Création du kernel
+kernel = rbfdot(sigma = 1/8) ; kernel
+
+# Calcul de la matrice de GRAM sur les données de test
+Ktrain = kernelMatrix(kernel, as.matrix(X[train_set,]))
+```
+
+```{r}
+## Q18) Entrez, exécutez et commentez les commandes suivantes :
+
+n = nrow(Ktrain) 
+k2 = apply(Ktrain,1,sum) # Somme de la matrice de GRAM par ligne
+k3 = apply(Ktrain,2,sum) # Somme de la matrice de GRAM par colonne
+k4 = sum(Ktrain) # Somme de la matrice de GRAM
+
+KtrainCent = matrix(0,ncol=n,nrow=n) # Création de la nouvelle matrice de GRAM vide
+for (i in 1:n){ # Pour chaque ligne
+  for (j in 1:n){ # Pour chaque colonne
+    KtrainCent[i,j]= Ktrain[i,j] - 1/n*k2[i] - 1/n*k3[j] + 1/n^2*k4
+    # L'élément (i, j) prend la valeur de la matrice de GRAM initiale - la moyenne 
+    # de la ligne i - la moyenne de la colonne j + la moyenne de la matrice de GRAM 
+    # initiale --> vecteurs centrés dans F
+  }
+}
+```
+
+```{r}
+## Q19) Procéder à la décomposition spectrale de la matrice KtrainCent en utilisant 
+## la commande eigen. Vous stockerez le résultat dans la variable eigen_KtrainCent.
+
+eigen_KtrainCent = eigen(KtrainCent) 
+```
+
+```{r}
+## Q20) On choisit de garder s = 80 axes principaux. Ainsi instanciez une 
+## variable s=80. Les coefficients sont obtenus par la ligne de code suivante :
+
+s = 80
+A = eigen_KtrainCent$vectors[,1:s] %*% diag(1/sqrt(eigen_KtrainCent$values[1:s])) 
+```
+
+
+```{r}
+## Q21) Entrez, exécutez et commentez l commande suivante :
+
+K = kernelMatrix(kernel, as.matrix(X))
+# Calcul de la matrice de GRAM sur l'ensemble des données X :
+# - kernel est la fonction à utiliser pour calculer la matrice noyau créé à la question 17.
+# - as.matrix(X) est la matrice des donnees X (variables explicatives).
+```
+
+```{r}
+## Q22) A partir de la variable K et en vous inspirant des questions (et indications) précédentes,
+## instanciez dans les variables p1, p2 et p3 les 3 termes composants l’équation donnée en (4).
+
+p1 <- K
+p2 <- apply(K[,train_set], 1, sum)
+p3 <- sum(K[train_set,train_set])
+```
+
+```{r}
+## Q23) A partir des résultats précédents, stockez dans une variable ps le 
+## vecteur qui pour toute observation des données de test donne la quantité (4).
+
+ps <- NULL
+i <- 1
+
+for (z in test_set){
+  ps[i] = p1[z,z] -(2/n) * p2[z] + (1/n^2) * p3
+  i <- i + 1
+}
+
+```
+
+```{r}
+## Q24) A partir de la variable K et en vous inspirant des questions précédentes, 
+## instanciez dans les variables f1, f2, f3 et f4 les termes successifs de (5). 
+## Vous remarquerez que certains termes ont déjà été calculés précédemment.
+
+f1 <- K[test_set,train_set]
+f2 <- p2[train_set]
+f3 <- p2[test_set]
+f4 <- p3
+```
+
+```{r}
+## Q25) A partir des résultats précédents, stockez dans une variable fl le
+## vecteur qui pour toute observation des données de test donne la quantité (5)
+## (Remarque : fl représene une matrice dont le nombre de lignes vaut le nombre
+## de données tests et le nombre de colonne, le nombre d’axes principaux retenus).
+
+n2 <- length(ytest) 
+fl <- matrix(0, ncol = s, nrow = n2)
+
+for (m in 1:s){
+  i<-0
+  for (z in test_set ){
+    i <- i + 1
+    var_temp <- 0
+    for (i2 in 1:n){
+      var_temp <- var_temp + (A[i2,m]* (f1[i,i2] - (1/n)*f2[i2] - (1/n)*f3[i] + (1/n^2)*f4))
+    }
+    fl[i,m] <- var_temp
+  }
+}
+```
+
+```{r}
+## Q26) A partir des résultats précédents, stockez dans une variable kpca_score_test le
+## vecteur qui pour toute observation des données de test donne le score défini en (3).
+
+kpca_score_test <- ps - apply(fl^2, 1, sum)
+```
+
+```{r}
+## Q27) Écrivez le code qui à partir de la variable kpca_score_test permet 
+## d’obtenir la courbe ROC. Pour comparer la courbe avec celle du one-class 
+## SVM vous pourrez ajouter dans la commande plot le paramètre add=TRUE. 
+## Commentez le graphique obtenu.
+
+# Afficher la courbe ROC de l'ACP
+pred_oc_acp = prediction(kpca_score_test, y[test_set])
+oc_acp_roc = performance(pred_oc_acp, measure = "tpr", x.measure = "fpr")
+plot(oc_acp_roc)
+
+# Calcul de l'AUC de l'ACP
+auc_acp <- performance(pred_oc_acp , measure = "auc" )
+print(auc_acp@y.values)
+
+# Comparaison SVM et ACP - Courbe ROC
+plot(oc_svm_roc, col = "blue", main = "Comparaison SVM et ACP")
+plot(oc_acp_roc, add=TRUE, col = "red") 
+legend("bottomright", title="Méthode", c("SVM","ACP"), fill = c("blue", "red"), horiz=FALSE)
+
+# Comparaison SVM et ACP - AUC
+print(paste0("AUC des SVM = ", auc_svm@y.values))
+print(paste0("AUC de l'ACP = ", auc_acp@y.values))
+
+# Conclusion : 
+# D'après les AUC et la courbe ROC, dans notre cas la méthode de l'ACP est plus
+# performante que la méthode des SVM. 
+```
+
+
+
+
+
+
+
