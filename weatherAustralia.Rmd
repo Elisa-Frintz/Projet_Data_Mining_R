@@ -128,12 +128,8 @@ Gestion de la date
 
 ```{r}
 
-################# A GARDER ? ####################
-
-# Gestion de la date
-aus <- aus %>% dplyr::mutate(Year = lubridate::year(Date), Month = lubridate::month(Date), Day = lubridate::day(Date))
+# Suppression de la date
 aus <- subset(aus, select = -c(Date))
-summary(aus)
 
 ```
 
@@ -150,6 +146,8 @@ Quelques statistiques descriptives
 
 ####################################
 
+Dans un premier temps nous effectuons une matrice de corrélation entre les diverses variables.
+
 ```{r}
 
 #aus$RainToday <- ifelse(aus$RainToday == "Yes", 1, 0)
@@ -163,11 +161,6 @@ split <- splitmix(X_aus)
 
 #Matrices de corrélation
 mcor <- cor(split$X.quanti)
-mcor
-
-```
-
-```{r}
 
 # Corrélogramme avec corrplot
 library(corrplot)
@@ -195,22 +188,7 @@ boxplot(aus$Rainfall)
 
 ```
 
-En effet le boxplot aussi peu visible soit-il, semble rapporter de nombreux outliers.
-
-```{r}
-
-#aus <- subset(aus, select = -c(Rainfall))
-
-```
-
-Nous supprimons les variables de dates
-
-```{r}
-
-aus <- subset(aus, select = -c(Year, Month, Day))
-
-```
-
+Nous pouvons observer la faible visibilité de ce boxplot. Nous pouvons en tirer l'information suivante : en Australie, + de 75% du temps il ne pleut pas.
 
 ###################################
 
@@ -262,37 +240,6 @@ y_test <- as.matrix(y[79051:112925])
 ```
 
 
-##################################
-
-Régression logistique Elasticnet
-
-##################################
-
-```{r}
-'
-# Régression logistique pénalisée Elasticnet
-modele <- glmnet(x = X_train, y = y_train, family = "binomial", alpha = 0.5, standardize = FALSE)
-plot(modele, xvar="lambda")
-
-# Nombre de variables sélectionnées vs. lambda avec alpha = 0.5
-print(cbind(modele$lambda, modele$df))
-
-# Coefficients pour la 41ème valeur de lambda
-print(modele$beta[,41])
-
-# Coefficients non nul pour la 41ème valeur de lambda
-print(modele$beta[abs(modele$beta[,15])>0,15])
-
-# Prédiction
-prediction <- predict(modele, X_test, type = "class", s=c(0))
-
-# Matrice de confusion
-mc <-  confusionMatrix(factor(prediction), factor(y_test))
-print(mc)
-'
-
-```
-
 #############################
 
  I) Support Vector Machines
@@ -334,11 +281,16 @@ colnames(test_svm)[11] <- "RainToday"
 
 # Undersampling
 under_train_svm <- ovun.sample(RainTomorrow~., data=train_svm, p=0.5, seed=5, method="under")$data
-print(table(under_train_svm$RainTomorrow))
 
 #Construction d'une solution pour tester plusieurs paramètres sans utiliser la validation croisée
-cost = c(1, 10)
+cost = c(0.1, 1)
 epsilon = c(0.05, 0.5)
+
+# Compteur
+cpt = 1
+
+# Résultats
+acc_linear <- c()
 
 for(i in cost){
   for(j in epsilon){
@@ -349,19 +301,39 @@ for(i in cost){
     
     # Matrice de confusion, hyper-paramètres et estimateurs
     mc_linear <-  confusionMatrix(pred_linear, factor(y_test_svm))
+    
+    # Affichage des données :
+    cat("ALGORITHME N° :", cpt, "\n")
+    cat("\n")
+    cat("#################################\n")
+    cat("\n")
     print(svm_fit_linear$call)
     cat("\n")
     cat("#################################\n")
+    cat("\n")
     cat("Hyper-paramètres : \n")
-    cat("Cost = ", i,"\n")
-    cat("Epsilon", j, "\n")
+    cat("Cost =", i,"\n")
+    cat("Epsilon =", j, "\n")
+    cat("\n")
     cat("#################################\n")
+    cat("\n")
     cat("Matrice de confusion : \n")
+    cat("\n")
     print(mc_linear$table)
+    cat("\n")
     cat("#################################\n")
-    cat("Accuracy : ",round(mc_linear$overall[1]*100,2) ,"%\n")
-    cat("F1 score : ",round(mc_linear$byClass[7]*100,2) ,"%\n")
-    cat("\n\n")
+    cat("\n")
+    cat("Accuracy :",round(mc_linear$overall[1]*100,2) ,"%\n")
+    cat("Precision :",round(mc_linear$byClass[5]*100,2) ,"%\n")
+    cat("Recall :",round(mc_linear$byClass[6]*100,2) ,"%\n")
+    cat("F1 score :",round(mc_linear$byClass[7]*100,2) ,"%\n")
+    cat("\n")
+    cat("###############################################################\n")
+    cat("\n")
+    
+    cpt = cpt + 1
+    
+    acc_linear <- rbind(acc_linear, round(mc_linear$overall[1]*100,2))
   }
 }
 
@@ -380,6 +352,12 @@ Avec ces premiers résultats, nous observons que les hyper-paramètres du SVM li
 # Ajout de l'hyper-paramètre gamma
 gamma = c(0.1, 1)
 
+# Réinitialisation compteur
+cpt = 1
+
+# Résultats
+acc_radial <- c()
+
 for(i in cost){
   for(j in gamma){
     # Fit avec un kernel radial
@@ -390,22 +368,41 @@ for(i in cost){
     
     # Matrice de confusion, hyper-paramètres et estimateurs
     mc_radial <-  confusionMatrix(pred_rad, factor(y_test_svm))
+    
+    # Affichage des données :
+    cat("ALGORITHME N° :", cpt)
+    cat("\n")
+    cat("#################################\n")
+    cat("\n")
     print(svm_fit_rad$call)
     cat("\n")
     cat("#################################\n")
+    cat("\n")
     cat("Hyper-paramètres : \n")
-    cat("Cost = ", i,"\n")
-    cat("Gamma", j, "\n")
+    cat("Cost =", i,"\n")
+    cat("Gamma =", j, "\n")
+    cat("\n")
     cat("#################################\n")
+    cat("\n")
     cat("Matrice de confusion : \n")
+    cat("\n")
     print(mc_radial$table)
+    cat("\n")
     cat("#################################\n")
+    cat("\n")
     cat("Accuracy : ",round(mc_radial$overall[1]*100,2) ,"%\n")
+    cat("Precision : ",round(mc_radial$byClass[5]*100,2) ,"%\n")
+    cat("Recall : ",round(mc_radial$byClass[6]*100,2) ,"%\n")
     cat("F1 score : ",round(mc_radial$byClass[7]*100,2) ,"%\n")
-    cat("\n\n")
+    cat("\n")
+    cat("###############################################################\n")
+    cat("\n")
+    
+    cpt = cpt + 1
+    
+    acc_radial <- rbind(acc_radial, round(mc_radial$overall[1]*100,2))
   }
 }
-
 
 ```
 
@@ -424,6 +421,12 @@ Puis avec un noyau polynomial de degré 2.
 degree = 2
 coef0 = c(0.1, 1)
 
+# Compteur
+cpt = 1
+
+# Résultats
+acc_poly <- c()
+
 for(i in cost){
   for(j in gamma){
     for(k in degree){
@@ -436,21 +439,41 @@ for(i in cost){
         
         # Matrice de confusion
         mc_poly <-  confusionMatrix(pred_poly, factor(y_test_svm))
+        
+        # Affichage des données :
+        cat("ALGORITHME N° :", cpt)
+        cat("\n")
+        cat("#################################\n")
+        cat("\n")
         print(svm_fit_poly$call)
         cat("\n")
         cat("#################################\n")
+        cat("\n")
         cat("Hyper-paramètres : \n")
-        cat("Cost = ", i,"\n")
-        cat("Gamma = ", j, "\n")
-        cat("Nombre de degrés = ", k, "\n")
-        cat("Coef0 = ", k, "\n")
+        cat("Cost =", i,"\n")
+        cat("Gamma =", j, "\n")
+        cat("Nombre de degrés =", k, "\n")
+        cat("Coef0 =", l, "\n")
+        cat("\n")
         cat("#################################\n")
+        cat("\n")
         cat("Matrice de confusion : \n")
+        cat("\n")
         print(mc_poly$table)
+        cat("\n")
         cat("#################################\n")
+        cat("\n")
         cat("Accuracy : ",round(mc_poly$overall[1]*100,2) ,"%\n")
+        cat("Precision : ",round(mc_poly$byClass[5]*100,2) ,"%\n")
+        cat("Recall : ",round(mc_poly$byClass[6]*100,2) ,"%\n")
         cat("F1 score : ",round(mc_poly$byClass[7]*100,2) ,"%\n")
-        cat("\n\n")
+        cat("\n")
+        cat("###############################################################\n")
+        cat("\n")
+        
+        cpt = cpt + 1
+        
+        acc_poly <- rbind(acc_poly, round(mc_poly$overall[1]*100,2))
       }
     }
   }
