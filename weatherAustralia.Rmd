@@ -21,7 +21,7 @@ RainToday / RainTomorrow = Yes si Rainfall > 1.
 #############################
 
 ```{r setup }
-
+knitr::opts_chunk$set(message = FALSE)
 library(readxl)
 library(tidyverse)
 library(PCAmixdata)
@@ -31,7 +31,6 @@ library(glmnet)
 library(caret)
 library(tidytable)
 library(e1071)
-library(ROSE)
 library(neuralnet)
 library(pROC)
 
@@ -461,7 +460,7 @@ Courbe ROC pour SVM Radial :
 
 ```{r}
 
-svm_fit_radial_final <- svm(formula = RainTomorrow~., data = train_final, kernel = "linear", type = "C-classification", scale = FALSE, cost = 1, gamma = 0.1)
+svm_fit_radial_final <- svm(formula = RainTomorrow~., data = train_final, kernel = "radial", type = "C-classification", scale = FALSE, cost = 1, gamma = 0.1)
 pred_radial <- predict(svm_fit_radial_final, test_final, type = "class")
 
 # Courbe ROC
@@ -561,7 +560,7 @@ Courbe ROC pour SVM Polynomial :
 
 ```{r}
 
-svm_fit_poly_final <- svm(formula = RainTomorrow~., data = train_final, kernel = "linear", type = "C-classification", scale = FALSE, cost = 1, gamma = 1, degree = 2, coef0 = 1)
+svm_fit_poly_final <- svm(formula = RainTomorrow~., data = train_final, kernel = "polynomial", type = "C-classification", scale = FALSE, cost = 1, gamma = 1, degree = 2, coef0 = 1)
 pred_poly <- predict(svm_fit_poly_final, test_final, type = "class")
 
 # Courbe ROC
@@ -1076,6 +1075,27 @@ Conclusion : de manière globale, les performances sont assez proches entre ridg
 
 En ElasticNet entre alpha = 0.2 et alpha = 0.5, on observe peu de différences.
 On retrouve cette similitude entre une pénalisation lasso et elasticnet (alpha <= 0) au niveau des courbes ROC dont les aires sont équivalentes. On sélectionnera le modèle Elastic Net qui a l'avantage de ne pas être biaisé par la corrélation entre variables lors de la sélection.
+
+
+Comparaison des courbes ROC de tous les modèles :
+
+```{r}
+
+ROC_elet <- roc(y_test_rl,pred_elet_min,
+            ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+            plot=TRUE, grid=TRUE,
+            print.auc=TRUE, col = 'brown')
+ROC_svm_poly <- roc(y_test_final,pred_poly,
+            ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+            plot=TRUE, grid=TRUE,
+            print.auc=TRUE, print.auc.y=0.4, col = 'red', add = TRUE)
+ROC_rnn_logistic <- roc(results$actual,results$prediction,
+            ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+            plot=TRUE, grid=TRUE,
+            print.auc=TRUE, print.auc.y=0.6, col = 'blue', add = TRUE)
+
+```
+
 
 
 
