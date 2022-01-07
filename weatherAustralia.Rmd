@@ -1,8 +1,8 @@
 ---
 title: "Rain Australia"
 output:
-  pdf_document: default
   word_document: default
+  pdf_document: default
 ---
 
 Notre jeu de données présente des relevés météorologiques en fonction de diverses villes en Australie.
@@ -16,11 +16,11 @@ RainToday / RainTomorrow = Yes si Rainfall > 1.
 
 #############################
                         
-Import des libraries
+## Import des libraries
 
 #############################
 
-```{r setup, include=TRUE}
+```{r setup }
 
 library(readxl)
 library(tidyverse)
@@ -32,17 +32,18 @@ library(caret)
 library(tidytable)
 library(e1071)
 library(ROSE)
+library(neuralnet)
+library(pROC)
 
 ```
 
 ############################################
 
-Chargement et visualisation des données
+## Chargement et visualisation des données
 
 ############################################
 
 ```{r}
-
 aus <- read.csv("weatherAUS.csv", header = TRUE, stringsAsFactors = TRUE)
 head(aus)
 
@@ -50,24 +51,22 @@ head(aus)
 
 #######################
 
-Résumé des données
+## Résumé des données
 
 #######################
 
 ```{r}
-
 summary(aus)
 
 ```
 
 #################################
 
-Trie du jeu de données par date
+## Trie du jeu de données par date
 
 #################################
 
 ```{r}
-
 aus <- aus[order(aus$Date),]
 
 ```
@@ -87,7 +86,7 @@ aus <- subset(aus, select = -c(Evaporation,Sunshine, Cloud3pm, Cloud9am))
 
 ##################################
 
-Traitement des données manquantes
+## Traitement des données manquantes
 
 ##################################
 
@@ -96,6 +95,7 @@ Traitement des données manquantes
 colSums(is.na(aus))
 
 ```
+
 ```{r}
 
 # Suppression des dernières valeurs manquantes
@@ -108,7 +108,7 @@ colSums(is.na(aus))
 
 ##########################################
 
-Description des données après nettoyage
+## Description des données après nettoyage
 
 ##########################################
 
@@ -142,7 +142,7 @@ head(aus)
 
 ####################################
 
-Quelques statistiques descriptives
+## Quelques statistiques descriptives
 
 ####################################
 
@@ -150,7 +150,6 @@ Dans un premier temps nous effectuons une matrice de corrélation entre les dive
 
 ```{r}
 
-#aus$RainToday <- ifelse(aus$RainToday == "Yes", 1, 0)
 
 # Séparation du modèle :
 X_aus <- subset(aus, select = -c(RainTomorrow))
@@ -190,13 +189,39 @@ boxplot(aus$Rainfall)
 
 Nous pouvons observer la faible visibilité de ce boxplot. Nous pouvons en tirer l'information suivante : en Australie, + de 75% du temps il ne pleut pas.
 
-###################################
+################################################################
 
-Centrage et reduction des données
+## Centrage et reduction des données et préparation des données
 
-###################################
+################################################################
 
 ```{r}
+
+"Jeux de données pour SVM"
+
+# Séparation données quanti / quali
+#split <- splitmix(aus)
+
+# Centrage et réduction des données quanti
+#aus_scaled <- as.data.frame(scale(split$X.quanti, center = T))
+
+# Refonte du dataset pour avoir les quali et quanti
+#aus <- cbind(split$X.quali, aus_scaled)
+
+# Définition des X et y
+#X <- subset(aus, select = -c(RainTomorrow))
+#y <- aus$RainTomorrow
+
+# Recodage des variables quali
+#X <- get_dummies.(X, drop_first = TRUE)
+
+# X et X_nn définitif
+#X <- subset(X, select = -c(Location, WindGustDir, WindDir9am, WindDir3pm, RainToday))
+
+"Jeu de données"
+
+# Création dataset
+aus <- aus[aus$Location == "AliceSprings" | aus$Location == "Brisbane" | aus$Location == "Cairns" | aus$Location == "Perth" | aus$Location == "Sydney",]
 
 # Séparation données quanti / quali
 split <- splitmix(aus)
@@ -214,11 +239,8 @@ y <- aus$RainTomorrow
 # Recodage des variables quali
 X <- get_dummies.(X, drop_first = TRUE)
 
-# X définitif
+# X et X_nn définitif
 X <- subset(X, select = -c(Location, WindGustDir, WindDir9am, WindDir3pm, RainToday))
-
-# Affichage pour vérification
-head(X)
 
 ```
 
@@ -231,56 +253,52 @@ Séparation des données
 ```{r}
 
 # Split train/test
-X_train <- as.matrix(X[1:79050,])
-X_test <- as.matrix(X[79051:112925,])
+X_train <- as.matrix(X[1:9772,])
+X_test <- as.matrix(X[9773:13959,])
 
-y_train <- as.matrix(y[1:79050])
-y_test <- as.matrix(y[79051:112925])
+y_train <- as.matrix(y[1:9772])
+y_test <- as.matrix(y[9773:13959])
 
 ```
 
 
 #############################
 
- I) Support Vector Machines
+## I) Support Vector Machines
 
 #############################
 
-Les SVM présentent un problème face aux nombres de variables que nous possédons dû au recodage des variables qualitatives. L'algorithme avec ses paramètres par défaut et après 1h de traitement n'était toujours pas terminé.
-De ce fait, les variables qualitatives n'ont pas été conservées pour les SVM.
 
-Afin d'équilibrer notre jeu de données et d'accélérer notre algorithme, nous partons sur une stratégie de sous échantillonage avec la librairie "ROSE".
+#####################
 
-##################
+### a) SVM Linéaire
 
- a) SVM Linéaire
-
-##################
+#####################
 
 
 ```{r}
 
 # Recodage des y_train
-y_train_svm <- ifelse(y_train == "Yes", 1, 0)
+y_train_final <- ifelse(y_train == "Yes", 1, 0)
 
 #Recodage y_test
-y_test_svm <- ifelse(y_test == "Yes", 1, 0)
+y_test_final <- ifelse(y_test == "Yes", 1, 0)
 
 # df train pour SVM
 X_df <- data.frame(X_train)
-train_svm <- X_df[,1:10]
-train_svm <- cbind(train_svm, X_df$RainToday_Yes)
-train_svm <-cbind(train_svm, y_train_svm)
-colnames(train_svm)[11:12] <- c("RainToday", "RainTomorrow")
+#train_final <- X_df[,1:10]
+#train_final <- cbind(X_df, X_df$RainToday_Yes)
+train_final <-cbind(X_df, y_train_final)
+colnames(train_final)[60:61] <- c("RainToday", "RainTomorrow")
 
 # df test pour SVM
 test_df <- data.frame(X_test)
-test_svm <- test_df[,1:10]
-test_svm <- cbind(test_svm, test_df$RainToday_Yes)
-colnames(test_svm)[11] <- "RainToday"
+test_final <- test_df[,1:60]
+#test_final <- cbind(test_df, test_df$RainToday_Yes)
+colnames(test_final)[60] <- "RainToday"
 
 # Undersampling
-under_train_svm <- ovun.sample(RainTomorrow~., data=train_svm, p=0.5, seed=5, method="under")$data
+#under_train_svm <- ovun.sample(RainTomorrow~., data=train_svm, p=0.5, seed=5, method="under")$data
 
 #Construction d'une solution pour tester plusieurs paramètres sans utiliser la validation croisée
 cost = c(0.1, 1)
@@ -291,16 +309,19 @@ cpt = 1
 
 # Résultats
 acc_linear <- c()
+precision <- c()
+recall <- c()
+f1_score <- c()
 
 for(i in cost){
   for(j in epsilon){
-    svm_fit_linear <- svm(formula = RainTomorrow~., data = under_train_svm, kernel = "linear", type = "C-classification", scale = FALSE, cost = i, epsilon = j)
+    svm_fit_linear <- svm(formula = RainTomorrow~., data = train_final, kernel = "linear", type = "C-classification", scale = FALSE, cost = i, epsilon = j)
     
     # Prédiction
-    pred_linear <- predict(svm_fit_linear, test_svm, type = "class")
+    pred_linear <- predict(svm_fit_linear, test_final, type = "class")
     
     # Matrice de confusion, hyper-paramètres et estimateurs
-    mc_linear <-  confusionMatrix(pred_linear, factor(y_test_svm))
+    mc_linear <-  confusionMatrix(pred_linear, factor(y_test_final), positive = "1")
     
     # Affichage des données :
     cat("ALGORITHME N° :", cpt, "\n")
@@ -334,16 +355,40 @@ for(i in cost){
     cpt = cpt + 1
     
     acc_linear <- rbind(acc_linear, round(mc_linear$overall[1]*100,2))
+    precision <- rbind(precision, round(mc_linear$byClass[5]*100,2))
+    recall <- rbind(recall, round(mc_linear$byClass[6]*100,2))
+    f1_score <- rbind(f1_score, round(mc_linear$byClass[7]*100,2))
   }
 }
 
 ```
-Avec ces premiers résultats, nous observons que les hyper-paramètres du SVM linéaire changent peu les résultats.
 
+Les meilleurs résultats sont cost = 1 et epsilon = 0.5 pour les SVM linéaires.
+
+Courbe ROC pour les SVM linéaire :
+
+```{r}
+
+svm_fit_linear_final <- svm(formula = RainTomorrow~., data = train_final, kernel = "linear", type = "C-classification", scale = FALSE, cost = 1, epsilon = 0.5)
+pred_linear <- predict(svm_fit_linear_final, test_final, type = "class")
+
+# Courbe ROC
+pred_linear <- as.integer(pred_linear)
+ROC_svm_linear <- roc(y_test_final,pred_linear,
+            ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+            plot=TRUE, grid=TRUE,
+            print.auc=TRUE)
+print(ROC_svm_linear)
+
+```
+
+
+
+Avec ces premiers résultats, nous observons que les hyper-paramètres du SVM linéaire changent peu les résultats.
 
 ##################
 
- b) SVM radial
+### b) SVM radial
 
 ##################
 
@@ -357,20 +402,23 @@ cpt = 1
 
 # Résultats
 acc_radial <- c()
+precision <- c()
+recall <- c()
+f1_score <- c()
 
 for(i in cost){
   for(j in gamma){
     # Fit avec un kernel radial
-    svm_fit_rad <- svm(formula = RainTomorrow~., data = under_train_svm, kernel = "radial", type = "C-classification", scale = FALSE, cost = i, gamma = j)
+    svm_fit_rad <- svm(formula = RainTomorrow~., data = train_final, kernel = "radial", type = "C-classification", scale = FALSE, cost = i, gamma = j)
       
     # Prédiction
-    pred_rad <- predict(svm_fit_rad, test_svm, type = "class")
+    pred_rad <- predict(svm_fit_rad, test_final, type = "class")
     
     # Matrice de confusion, hyper-paramètres et estimateurs
-    mc_radial <-  confusionMatrix(pred_rad, factor(y_test_svm))
+    mc_radial <-  confusionMatrix(pred_rad, factor(y_test_final), positive = "1")
     
     # Affichage des données :
-    cat("ALGORITHME N° :", cpt)
+    cat("ALGORITHME N° :", cpt, "\n")
     cat("\n")
     cat("#################################\n")
     cat("\n")
@@ -401,15 +449,35 @@ for(i in cost){
     cpt = cpt + 1
     
     acc_radial <- rbind(acc_radial, round(mc_radial$overall[1]*100,2))
+    precision <- rbind(acc_radial, round(mc_radial$byClass[5]*100,2))
+    recall <- rbind(acc_radial, round(mc_radial$byClass[6]*100,2))
+    f1_score <- rbind(acc_radial, round(mc_radial$byClass[7]*100,2))
   }
 }
+
+```
+
+Courbe ROC pour SVM Radial :
+
+```{r}
+
+svm_fit_radial_final <- svm(formula = RainTomorrow~., data = train_final, kernel = "linear", type = "C-classification", scale = FALSE, cost = 1, gamma = 0.1)
+pred_radial <- predict(svm_fit_radial_final, test_final, type = "class")
+
+# Courbe ROC
+pred_radial <- as.integer(pred_radial)
+ROC_svm_radial <- roc(y_test_final,pred_radial,
+            ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+            plot=TRUE, grid=TRUE,
+            print.auc=TRUE)
+print(ROC_svm_radial)
 
 ```
 
 
 ####################
 
- c) SVM polynomial
+### c) SVM polynomial
 
 ####################
 
@@ -426,22 +494,25 @@ cpt = 1
 
 # Résultats
 acc_poly <- c()
+precision <- c()
+recall <- c()
+f1_score <- c()
 
 for(i in cost){
   for(j in gamma){
     for(k in degree){
       for(l in coef0){
         # Fit avec un kernel linéaire
-        svm_fit_poly <- svm(formula = RainTomorrow~., data = under_train_svm, kernel = "polynomial", type = "C-classification", scale = FALSE, cost = i, gamma = j, degree = k, coef0 = l)
+        svm_fit_poly <- svm(formula = RainTomorrow~., data = train_final, kernel = "polynomial", type = "C-classification", scale = FALSE, cost = i, gamma = j, degree = k, coef0 = l)
 
         # Prédiction
-        pred_poly <- predict(svm_fit_poly, test_svm, type = "class")
+        pred_poly <- predict(svm_fit_poly, test_final, type = "class")
         
         # Matrice de confusion
-        mc_poly <-  confusionMatrix(pred_poly, factor(y_test_svm))
+        mc_poly <-  confusionMatrix(pred_poly, factor(y_test_final), positive = "1")
         
         # Affichage des données :
-        cat("ALGORITHME N° :", cpt)
+        cat("ALGORITHME N° :", cpt, "\n")
         cat("\n")
         cat("#################################\n")
         cat("\n")
@@ -474,14 +545,537 @@ for(i in cost){
         cpt = cpt + 1
         
         acc_poly <- rbind(acc_poly, round(mc_poly$overall[1]*100,2))
+        precision <- rbind(acc_radial, round(mc_poly$byClass[5]*100,2))
+        recall <- rbind(acc_radial, round(mc_poly$byClass[6]*100,2))
+        f1_score <- rbind(acc_radial, round(mc_poly$byClass[7]*100,2))
       }
     }
   }
 }
 
+
+
 ```
 
-Etant donnée que nous sommes sur un jeu de données avec une série temporelle, nous ne pouvons utiliser la méthode tune pour chercher les meilleurs paramètres. En effet, la méthode tune utilise une validation croisée. Nous ne pouvons pas utiliser de validation croisée en série temporelle étant donnée que la donnée antérieure va impacter la donnée suivante.
+Courbe ROC pour SVM Polynomial :
+
+```{r}
+
+svm_fit_poly_final <- svm(formula = RainTomorrow~., data = train_final, kernel = "linear", type = "C-classification", scale = FALSE, cost = 1, gamma = 1, degree = 2, coef0 = 1)
+pred_poly <- predict(svm_fit_poly_final, test_final, type = "class")
+
+# Courbe ROC
+pred_poly <- as.integer(pred_poly)
+ROC_svm_poly <- roc(y_test_final,pred_poly,
+            ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+            plot=TRUE, grid=TRUE,
+            print.auc=TRUE)
+print(ROC_svm_poly)
+
+```
+
+Les courbes AUC présentent les mêmes résultats. De ce fait, en comparant les rappels et taux de reconnaissance. Le meilleur modèle est le modèle polynomial de degré 2.
+
+#############################
+
+## II) Réseau de neurones
+
+#############################
+
+
+```{r}
+
+########################################################################
+## Mise en place d'un Réseaux de neurones avec 1 couche cachée
+
+# Mis en forme du dataset pour l'algorithme des réseaux de neurones
+dftrain = cbind.data.frame(X_train, y = y_train_final)
+
+# Formula
+var_exp = paste(colnames(X_train) , collapse = "+")
+clas_cib = "y"
+mod = paste(clas_cib, "~", var_exp, sep ="")
+mod = as.formula(mod)
+
+# Nombre de neurones dans la couche cachée
+p = length(colnames(X_train)) - 1
+
+#Réseau de neurones
+nn <- neuralnet(mod, data=dftrain, hidden=p, linear.output=FALSE)
+
+# Prédiction
+nn.results <- compute(nn, X_test)
+
+# Construction des résultats
+results <- data.frame(actual = y_test_final, prediction = nn.results$net.result)
+roundedresults<-sapply(results,round,digits=0)
+roundedresultsdf=data.frame(roundedresults)
+attach(roundedresultsdf)
+
+# Matrice de confusion
+mc_nn <- confusionMatrix(factor(prediction), factor(actual), positive = "1")
+
+# Affichage des données :
+cat("###############################################################\n")
+cat("\n")
+cat("Réseau de neurones")
+cat("\n")
+cat("#################################\n")
+cat("\n")
+print(nn$call)
+cat("\n")
+cat("Matrice de confusion : \n")
+cat("\n")
+print(mc_nn$table)
+cat("\n")
+cat("#################################\n")
+cat("\n")
+cat("Accuracy : ",round(mc_nn$overall[1]*100,2) ,"%\n")
+cat("Precision : ",round(mc_nn$byClass[5]*100,2) ,"%\n")
+cat("Recall : ",round(mc_nn$byClass[6]*100,2) ,"%\n")
+cat("F1 score : ",round(mc_nn$byClass[7]*100,2) ,"%\n")
+cat("\n")
+cat("###############################################################\n")
+
+```
+
+Courbe ROC du réseaux de neuronnes avec la fonction d'activation par défaut :
+
+```{r}
+
+# Courbe ROC
+ROC_rnn <- roc(results$actual,results$prediction,
+            ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+            plot=TRUE, grid=TRUE,
+            print.auc=TRUE)
+print(ROC_rnn)
+
+```
+
+Réseau de neurones avec fonction d'activation sigmoid :
+
+```{r}
+
+nn_logistic <- neuralnet(mod, data=dftrain, hidden=p, linear.output=FALSE, act.fct = 'logistic')
+
+# Prédiction
+nn_logistic.results <- compute(nn_logistic, X_test)
+
+# Construction des résultats
+results <- data.frame(actual = y_test_final, prediction = nn_logistic.results$net.result)
+roundedresults<-sapply(results,round,digits=0)
+roundedresultsdf=data.frame(roundedresults)
+attach(roundedresultsdf)
+
+# Matrice de confusion
+mc_nn <- confusionMatrix(factor(prediction), factor(actual), positive = "1")
+
+# Affichage des données :
+cat("###############################################################\n")
+cat("\n")
+cat("Réseau de neurones")
+cat("\n")
+cat("#################################\n")
+cat("\n")
+print(nn$call)
+cat("\n")
+cat("Matrice de confusion : \n")
+cat("\n")
+print(mc_nn$table)
+cat("\n")
+cat("#################################\n")
+cat("\n")
+cat("Accuracy : ",round(mc_nn$overall[1]*100,2) ,"%\n")
+cat("Precision : ",round(mc_nn$byClass[5]*100,2) ,"%\n")
+cat("Recall : ",round(mc_nn$byClass[6]*100,2) ,"%\n")
+cat("F1 score : ",round(mc_nn$byClass[7]*100,2) ,"%\n")
+cat("\n")
+cat("###############################################################\n")
+
+```
+
+
+Courbe ROC du réseaux de neuronnes avec la fonction d'activation sigmoid :
+
+```{r}
+
+# Courbe ROC
+ROC_rnn_logistic <- roc(results$actual,results$prediction,
+            ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+            plot=TRUE, grid=TRUE,
+            print.auc=TRUE)
+print(ROC_rnn)
+
+```
+
+
+#########################################
+
+## III) REGRESSION LOGISTIQUE PENALISEE
+
+#########################################
+
+Nous allons maintenant tester les performances de la régression logistique binaire pénalisée. Nous allons mesurer et comparer les effets des pénalisations RIGDE, LASSO et ELASTICNET.
+
+### a) Pénalité Ridge
+
+
+```{r}
+
+# Recodage des y_train
+y_train_rl <- ifelse(y_train == "Yes", 1, 0)
+y_test_rl <- ifelse(y_test == "Yes", 1, 0)
+
+```
+
+On entraine le modèle avec alpha = 0.Nous obtenons en sortie le chemin de régularisation. Nous voyons bien que les coefficients ne sont jamais nuls. La pénalité Ridge ne fait pas de sélection de variables, le nombre de coefficient ne change pas quelque soit la valeur de lambda.
+
+```{r}
+
+# Régression logistique pénalisée ridge
+modele_ridge <- glmnet(x = X_train, y = y_train_rl, family = "binomial", alpha = 0, standardize = FALSE)
+
+#Chemin de régularisation en fonction de lambda
+plot(modele_ridge, xvar="lambda")
+
+#Chemin de régularisation pour la norme L1
+plot(modele_ridge)
+
+# Nombre de variables sélectionnées vs. lambda avec alpha = 0
+print(cbind(modele_ridge$lambda, modele_ridge$df))
+
+```
+
+Pour trouver la valeur idéale de lambda, nous utilisons la validation croisée. Lambda.min est la valeur de lambda pour laquelle l'erreur est minimisée. Lambda.1se est la valeur pour laquelle le modèle est le plus régularisé. Cette valeur se situe à un écart-type de lambda.min.
+
+```{r}
+
+#Entraînement du modèle
+set.seed(1)
+lambda.ridge <- cv.glmnet(X_train, y_train, family="binomial", type.measure="class", nfolds=5, alpha=0, keep=TRUE)
+
+#Evolution du lambda, le lambda idéal est celui minimise l'erreur. Il apparaît au niveau des pointillés
+plot(lambda.ridge)
+
+#valeur de lambda.min et lambda.1se
+cat("lambda.min :", lambda.ridge$lambda.min,"\n","lambda.1se :", lambda.ridge$lambda.1se)
+
+```
+
+Nous réalisons maintenant les prédictions avec les deux valeurs de lambda.
+
+```{r}
+
+#prédiction avec lambda.min qui minimise l'erreur 
+pred_ridge_min <- predict(modele_ridge, X_test, s=c(lambda.ridge$lambda.min), type="class")
+mc_ridge_min <-  confusionMatrix(factor(pred_ridge_min), factor(y_test_rl), positive = "1")
+
+cat("#################################\n")
+cat("Matrice de confusion pour lambda.1se \n")
+cat("#################################\n")
+print(mc_ridge_min)
+
+cat("\n")
+
+#Prédiction avec lambda.1se qui est le modèle le plus régularisé
+pred_ridge_1se <- predict(modele_ridge, X_test, s=c(lambda.ridge$lambda.1se), type="class")
+mc_ridge_1se <-  confusionMatrix(factor(pred_ridge_1se), factor(y_test_rl), positive = "1")
+
+cat("#################################\n")
+cat("Matrice de confusion pour lambda.1se \n")
+cat("#################################\n")
+print(mc_ridge_1se)
+
+```
+
+En comparant les performances, on se rend compte que les différences sont minimes. Cela se joue sur la précision et le rappel. Avec lambda.min, les prédictions erronnées d'absence de pluie sont légèrement inférieures (300) à celles obtenues avec lambda.1se (318). Lambda.min nous semble meilleure même si la précision est légèrement inférieure.
+
+Courbe ROC
+
+```{r}
+
+# Courbe ROC
+pred_ridge_min <- as.integer(pred_ridge_min)
+ROC_ridge <- roc(y_test_rl,pred_ridge_min,
+            ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+            plot=TRUE, grid=TRUE,
+            print.auc=TRUE)
+print(ROC_ridge)
+
+```
+
+### b) Régression Lasso
+
+On entraine le modèle avec alpha = 1. Nous obtenons en sortie le chemin de régularisation. Ici, il apparaît clairement que certains coefficients sont nullifiés par la pénalité Lasso. On peut voir que selon la valeur de lambda, jusqu'à 99 variables peuvent être supprimées.
+
+```{r}
+
+# Régression logistique pénalisée ridge
+modele_lasso <- glmnet(x = X_train, y = y_train_rl, family = "binomial", alpha = 1, standardize = FALSE)
+
+#Chemin de régularisation en fonction de lambda
+plot(modele_lasso, xvar="lambda")
+
+#Chemin de régularisation pour la norme L2
+plot(modele_lasso)
+
+# Nombre de variables sélectionnées vs. lambda avec alpha = 1
+print(cbind(modele_lasso$lambda, modele_lasso$df))
+
+```
+
+On utilise cv.glmnet pour estimer lambda en validation croisée. Les valeurs sont faibles mais nous remarquons un facteur 4.
+
+```{r}
+
+#Entraînement du modèle
+set.seed(1)
+lambda.lasso <- cv.glmnet(X_train, y_train_rl, family="binomial", type.measure="class", nfolds=5, alpha=1, keep=TRUE)
+
+#Evolution du lambda, le lambda idéal est celui minimise l'erreur. Il apparaît au niveau des pointillés
+plot(lambda.lasso)
+
+#valeur de lambda.min et lambda.1se
+cat("lambda.min :", lambda.lasso$lambda.min, "\n", "lambda.1se :", lambda.lasso$lambda.1se)
+
+```
+
+Prédiction avec les valeurs de lambda.
+
+```{r}
+
+#prédiction avec lambda.min qui minimise l'erreur 
+pred_lasso_min <- predict(modele_lasso, X_test, s=c(lambda.lasso$lambda.min), type="class")
+mc_lasso_min <-  confusionMatrix(factor(pred_lasso_min), factor(y_test_rl), positive = "1")
+
+cat("#################################\n")
+cat("Matrice de confusion pour lambda.min \n")
+cat("#################################\n")
+print(mc_lasso_min)
+
+cat("\n")
+
+#Prédiction avec lambda.1se qui est le modèle le plus régularisé
+pred_lasso_1se <- predict(modele_lasso, X_test, s=c(lambda.lasso$lambda.1se), type="class")
+mc_lasso_1se <-  confusionMatrix(data = factor(pred_lasso_1se), reference = factor(y_test_rl), positive = "1")
+
+cat("#################################\n")
+cat("Matrice de confusion pour lambda.1se \n")
+cat("#################################\n")
+print(mc_lasso_1se)
+
+```
+
+On peut noter dans un premier temps que l'accuracy et les bonnes prédictions sont meilleures avec Lasso. La précision est également plus performante par rapport à Ridge.
+
+En ce qui concerne les écarts entre lambda.min et lambda.1se, ils sont faibles mais c'est toujours avec lambda.min qu'on obtient les meilleurs scores globaux.
+
+```{r}
+
+#Coeff du modèle
+print(coef(lambda.lasso,s="lambda.min"))
+
+# Courbe ROC
+pred_lasso_min <- as.integer(pred_lasso_min)
+ROC_lasso <- roc(y_test_rl,pred_lasso_min,
+            ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+            plot=TRUE, grid=TRUE,
+            print.auc=TRUE)
+print(ROC_lasso)
+
+```
+
+On peut voir que le modèle en Lasso a été simplifié puisque 29 coefficients sont nuls : 3 appartenant à la variable "Location" et 3 autres pour la variable "WindGustDir". Ces variables ont été recodées.
+
+L'AUC est meilleure en Lasso par rapport à Ridge. 0.713 vs 0.698.
+
+### c) Pénalité ElasticNet
+
+Nous allons désormais entraîner un modèle en combinant les deux pénalités Ridge et Lasso. C'est la pénalité ElasticNet, qui tire le meilleur parti des deux pénalités en effaçant leurs défauts respectifs.
+Les meilleures performances en Lasso nous donne une première intuition qui est que les performances devraient être meilleures pour 0.5 <= alpha < 1.
+Vérifions.
+
+```{r}
+
+# Régression logistique pénalisée elasticnet
+
+alpha <- c(seq(0.0, 1, 0.1))
+precision <- c()
+rappel <- c()
+
+
+for (i in alpha){
+  modele <- cv.glmnet(x = X_train, y = y_train_rl, family = "binomial", alpha = i, nfolds = 5)
+
+# Prédiction
+  prediction <- predict(modele, X_test, type = "class", s=c(0))
+
+  precision <- append(precision, precision(factor(prediction), factor(y_test_rl), relevant = "1"))
+  rappel <- append(rappel, recall(factor(prediction), factor(y_test_rl), relevant = "1"))
+  # Matrice de confusion
+  # mc_elet <-  table(factor(prediction), factor(y_test_rl))
+  # cat("La matrice de confusion pour alpha =", i, "est :\n", mc_elet, "\n")
+  }
+
+comparaison <- as.data.frame(cbind(alpha, precision, rappel))
+print(comparaison)
+
+```
+
+On voit ici que la meilleure précision est avec la pénalité Ridge. Cependant ce qui importe dans ce contexte est le rappel puisqu'on souhaite éviter de prédire un jour sec au lieu d'un jour pluvieux. Sur ce critère, c'est bien lorsqu'on tend vers Lasso qu'on obtient les meilleurs résultats. A l'issue de la validation croisée, 2 valeurs de alpha semblent être les meilleurs compromis : alpha = 0.6 et alpha = 0.9. Va comparer les deux modèles.
+
+```{r}
+
+# Régression logistique pénalisée elasticnet
+modele_0.2 <- glmnet(x = X_train, y = y_train_rl, family = "binomial", alpha = 0.2, standardize = FALSE)
+# plot(modele, xvar="lambda")
+# plot(modele)
+
+# Prédiction
+pred0.2 <- predict(modele_0.2, X_test, type = "class", s=c(0))
+
+# Matrice de confusion
+mc0.2 <-  confusionMatrix(factor(pred0.2), factor(y_test_rl), positive = "1")
+print(mc0.2)
+
+# Régression logistique pénalisée elasticnet
+modele_0.9 <- glmnet(x = X_train, y = y_train_rl, family = "binomial", alpha = 0.9, standardize = FALSE)
+# plot(modele, xvar="lambda")
+# plot(modele)
+
+# Prédiction
+pred0.9 <- predict(modele_0.9, X_test, type = "class", s=c(0))
+
+# Matrice de confusion
+mc0.9 <-  confusionMatrix(factor(pred0.9), factor(y_test_rl), positive = "1")
+print(mc0.9)
+
+# Régression logistique pénalisée elasticnet
+modele_0.5 <- glmnet(x = X_train, y = y_train_rl, family = "binomial", alpha = 0.5, standardize = FALSE)
+# plot(modele, xvar="lambda")
+# plot(modele)
+
+# Prédiction
+pred0.5 <- predict(modele_0.5, X_test, type = "class", s=c(0))
+
+# Matrice de confusion
+mc0.5 <-  confusionMatrix(factor(pred0.5), factor(y_test_rl), positive = "1")
+print(mc0.5)
+
+
+#Courbe ROC
+# pred <- prediction(prediction, y_test_rl)
+# perf <- performance(pred,"tpr","fpr")
+# plot(perf,colorize=TRUE)
+
+# pred_elet_min <- as.integer(pred_elet_min)
+# ROC_elet <- roc(y_test_rl,pred_elet_min,
+#             ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+#             plot=TRUE, grid=TRUE,
+#             print.auc=TRUE)
+# print(ROC_elet)
+
+```
+
+Les résultats sont équivalents à deux bonnes prédictions près. Par souci de performance, on choisit le paramètre alpha = 0.5. D'autant plus qu'il diminue davantage la complexité du modèle.
+Nous allons donc chercher la meilleure valeur de lambda.
+
+```{r}
+
+#Chemin de régularisation en fonction de lambda
+plot(modele_0.5, xvar="lambda")
+
+#Chemin de régularisation pour ElasticNet
+plot(modele_0.5)
+
+```
+
+```{r}
+
+#Entraînement du modèle
+set.seed(1)
+lambda.elet <- cv.glmnet(X_train, y_train_rl, family="binomial", type.measure="class", nfolds=5, alpha=0.5, keep=TRUE, foldid = lambda.lasso$foldid)
+
+#Evolution du lambda, le lambda idéal est celui minimise l'erreur. Il apparaît au niveau des pointillés
+plot(lambda.elet)
+
+#valeur de lambda.min et lambda.1se
+cat("lambda.min :", lambda.elet$lambda.min, "\n", "lambda.1se :", lambda.elet$lambda.1se)
+
+# Nombre de variables sélectionnées vs. lambda avec alpha = 0.5
+print(cbind(modele_lasso$lambda, modele_lasso$df))
+
+```
+
+Nous observons encore ici, de très faibles valeurs de lambda. Celle qui minimise l'erreur, réduit de 40 variables le modèle. Lambda.1se qui régularise le plus le modèle, sélectionne "seulement" 17 variables.
+
+Comparons enfin les prédictions selon les valeurs de lambda.
+
+```{r}
+
+#prédiction avec lambda.min qui minimise l'erreur 
+pred_elet_min <- predict(modele_0.5, X_test, s=c(lambda.elet$lambda.min), type="class")
+mc_elet_min <-  confusionMatrix(factor(pred_elet_min), factor(y_test_rl), positive = "1")
+
+cat("#################################\n")
+cat("Matrice de confusion pour lambda.min \n")
+cat("#################################\n")
+print(mc_elet_min)
+
+cat("\n")
+
+#Prédiction avec lambda.1se qui est le modèle le plus régularisé
+pred_elet_1se <- predict(modele_0.5, X_test, s=c(lambda.elet$lambda.1se), type="class")
+mc_elet_1se <-  confusionMatrix(data = factor(pred_elet_1se), reference = factor(y_test_rl), positive = "1")
+
+cat("#################################\n")
+cat("Matrice de confusion pour lambda.1se \n")
+cat("#################################\n")
+print(mc_elet_1se)
+
+```
+
+Sans surprise, c'est encore lorsque l'erreur est minimisée que l'on obtient les meilleurs résultats. Ainsi la courbe ROC avec lambda.min donne
+
+```{r}
+
+#Coeff du modèle
+print(coef(lambda.elet,s="lambda.min"))
+
+# Courbe ROC
+pred_elet_min <- as.integer(pred_elet_min)
+ROC_elet <- roc(y_test_rl,pred_elet_min,
+            ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+            plot=TRUE, grid=TRUE,
+            print.auc=TRUE)
+print(ROC_elet)
+
+```
+
+Comparaison des modèles
+
+```{r}
+
+pred_ridge_min <- as.integer(pred_ridge_min)
+ROC_ridge <- roc(y_test_rl,pred_ridge_min,
+            ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+            plot=TRUE, grid=TRUE,
+            print.auc=TRUE, col = 'blue')
+ROC_lasso <- roc(y_test_rl,pred_lasso_min,
+            ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+            plot=TRUE, grid=TRUE,
+            print.auc=TRUE, print.auc.y=0.4, add = TRUE, col = 'brown')
+ROC_elet <- roc(y_test_rl,pred_elet_min,
+            ci=TRUE, ci.alpha=0.9, stratified=FALSE,
+            plot=TRUE, grid=TRUE,
+            print.auc=TRUE, print.auc.y=0.6, add = TRUE, col = 'red')
+
+```
+
+Conclusion : de manière globale, les performances sont assez proches entre ridge, lasso et la combinaison des deux. Cependant, c'est lorsque l'on penche vers lasso que les résultats sont meilleures. Une meilleure accuracy, mais surtout un meilleur rappel. Pour chaque cas, c'est la valeur de lambda qui minimise l'erreur qui est conservée. Mais on a pu se rendre compte de leurs très faibles valeurs, ce qui signifie que l'ont donne peu d'importance à la régularisation. Cela se voit par le faible nombre de variables nullifiées avec lasso.
+
+En ElasticNet entre alpha = 0.2 et alpha = 0.5, on observe peu de différences.
+On retrouve cette similitude entre une pénalisation lasso et elasticnet (alpha <= 0) au niveau des courbes ROC dont les aires sont équivalentes. On sélectionnera le modèle Elastic Net qui a l'avantage de ne pas être biaisé par la corrélation entre variables lors de la sélection.
 
 
 
